@@ -95,6 +95,11 @@ export function getTrackSource(id) {
   });
 }
 
+/** 删除指定歌曲的音源缓存（切换音质时使用，避免命中旧音质缓存） */
+export function deleteTrackSource(id) {
+  return db.trackSources.delete(Number(id));
+}
+
 export function cacheTrackDetail(track, privileges) {
   db.trackDetail.put({
     id: track.id,

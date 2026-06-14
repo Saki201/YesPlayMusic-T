@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "YesPlayMusic-T",
+  "version": "0.4.10",
+  "identifier": "com.qier222.yesplaymusic-t",
+  "build": {
+    "beforeDevCommand": "pnpm tauri:web-serve",
+    "devUrl": "http://localhost:20201",
+    "beforeBuildCommand": "pnpm tauri:web-build",
+    "frontendDist": "http://127.0.0.1:27232"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": []
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "nsis": {
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

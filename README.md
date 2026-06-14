@@ -1,275 +1,177 @@
-<div align="center">
-	<a href="http://go.warp.dev/YesPlayMusic" target="_blank">
-		<sup>Special thanks to:</sup>
-		<br>
-		<img alt="Warp sponsorship" width="400" src="https://github.com/warpdotdev/brand-assets/blob/main/Github/Sponsor/Warp-Github-LG-03.png?raw=true">
-		<br>
-		<h>Warp is built for coding with multiple AI agents</b>
-		<br>
-		<sup>Available for macOS, Linux and Windows</sup>
-	</a>
-</div>
+# YesPlayMusic-T
 
-<br>
+YesPlayMusic-T 是面向 Windows 的 YesPlayMusic 重构版。项目保留原有 Vue 2 前端体验，将桌面运行时从 Electron 迁移到 Tauri 2，并补齐当前重构目标中的评论面板、音质切换、Windows 托盘、全局快捷键和本地播放状态接口。
 
----
+本仓库当前目标只保证 Windows 端可用。macOS Touch Bar、dock、Linux MPRIS/osdlyrics 等旧 Electron 跨平台能力不属于当前发布范围。
 
-<br />
-<p align="center">
-  <a href="https://music.qier222.com" target="blank">
-    <img src="images/logo.png" alt="Logo" width="156" height="156">
-  </a>
-  <h2 align="center" style="font-weight: 600">YesPlayMusic</h2>
+## 项目状态
 
-  <p align="center">
-    高颜值的第三方网易云播放器
-    <br />
-    <a href="https://music.qier222.com" target="blank"><strong>🌎 访问DEMO</strong></a>&nbsp;&nbsp;|&nbsp;&nbsp;
-    <a href="#%EF%B8%8F-安装" target="blank"><strong>📦️ 下载安装包</strong></a>&nbsp;&nbsp;|&nbsp;&nbsp;
-    <a href="https://t.me/yesplaymusic" target="blank"><strong>💬 加入交流群</strong></a>
-    <br />
-    <br />
-  </p>
-</p>
+- 桌面端主线：Tauri 2 + Rust + WebView2
+- 前端主线：Vue 2 + Vue CLI 4 / Webpack 4
+- 包管理器：pnpm
+- 目标平台：Windows 10/11 x64
+- 安装包格式：NSIS
 
-[![Library][library-screenshot]](https://music.qier222.com)
+Electron 代码仍保留在仓库中，主要用于对照迁移和保留旧实现参考。当前 Windows 桌面发布应优先使用 Tauri 命令。
 
-## 全新版本
+## 功能范围
 
-全新 2.0 Alpha 测试版已发布，欢迎前往 [Releases](https://github.com/qier222/YesPlayMusic/releases) 页面下载。
-当前版本将会进入维护模式，除重大 bug 修复外，不会再更新新功能。
+- 网易云账号登录：扫码、手机、邮箱登录
+- 播放器基础能力：播放、暂停、上一首、下一首、播放队列、私人 FM
+- 歌词页：歌词显示、翻译、罗马音、背景色提取、全屏歌词
+- 评论面板：歌曲评论、排序、楼层回复、点赞、发送和回复评论
+- 音质切换：128K、192K、320K、FLAC、Hi-Res，并在切换后刷新当前歌曲音源缓存
+- 解灰：集成 UnblockNeteaseMusic Rust 引擎，默认音源为 ytdl、bilibili、pyncm、kugou
+- 桌面能力：自绘 Windows 标题栏、系统托盘、全局快捷键、关闭到托盘、Discord Rich Presence
+- 本地接口：`127.0.0.1:27232/player` 提供当前播放状态
 
-## ✨ 特性
+## 架构概览
 
-- ✅ 使用 Vue.js 全家桶开发
-- 🔴 网易云账号登录（扫码/手机/邮箱登录）
-- 📺 支持 MV 播放
-- 📃 支持歌词显示
-- 📻 支持私人 FM / 每日推荐歌曲
-- 🚫🤝 无任何社交功能
-- 🌎️ 海外用户可直接播放（需要登录网易云账号）
-- 🔐 支持 [UnblockNeteaseMusic](https://github.com/UnblockNeteaseMusic/server#音源清单)，自动使用[各类音源](https://github.com/UnblockNeteaseMusic/server#音源清单)替换变灰歌曲链接 （网页版不支持）
-  - 「各类音源」指默认启用的音源。
-  - YouTube 音源需自行安装 `yt-dlp`。
-- ~~✔️ 每日自动签到（手机端和电脑端同时签到）~~
-- 🌚 Light/Dark Mode 自动切换
-- 👆 支持 Touch Bar
-- 🖥️ 支持 PWA，可在 Chrome/Edge 里点击地址栏右边的 ➕ 安装到电脑
-- 🟥 支持 Last.fm Scrobble
-- ☁️ 支持音乐云盘
-- ⌨️ 自定义快捷键和全局快捷键
-- 🎧 支持 Mpris
-- 🛠 更多特性开发中
+Tauri 版尽量复刻旧 Electron 版拓扑，让前端改动保持可控：
 
-## 📦️ 安装
+| 职责 | Electron 旧实现 | Tauri 当前实现 |
+|---|---|---|
+| 桌面窗口 | Electron `BrowserWindow` | Tauri `WebviewWindow` |
+| 本地静态服务 | Express `127.0.0.1:27232` | axum `127.0.0.1:27232` |
+| 网易云 API | `@neteaseapireborn/api` Node 服务 | `ncm-api-rs` Rust 服务 |
+| 前端 IPC | `window.require('electron').ipcRenderer` | `src/utils/tauriBridge.js` 兼容层 |
+| 设置持久化 | `electron-store` | `%APPDATA%/com.qier222.yesplaymusic-t/settings.json` |
+| 解灰 | `@unblockneteasemusic/rust-napi` | `unm_engine` 系列 Rust crate |
+| 更新检查 | `electron-updater` | GitHub Releases 检查并打开下载页 |
 
-Electron 版本由 [@hawtim](https://github.com/hawtim) 和 [@qier222](https://github.com/qier222) 适配并维护，支持 macOS、Windows、Linux。
+关键文件：
 
-访问本项目的 [Releases](https://github.com/qier222/YesPlayMusic/releases)
-页面下载安装包。
+- `src/main.js`：前端入口，必须最先加载 `src/utils/tauriBridge.js`
+- `src/utils/tauriBridge.js`：Tauri 下的 Electron IPC 兼容层
+- `src/utils/Player.js`：播放器核心、音源选择、缓存、解灰、Discord 状态
+- `src/views/lyrics.vue`：歌词页、评论面板、音质切换入口
+- `src-tauri/src/lib.rs`：Tauri 应用入口、窗口、托盘、快捷键、更新检查
+- `src-tauri/src/server.rs`：本地 HTTP 服务、静态资源、网易云 API、`/player`
+- `src-tauri/src/ipc.rs`：前端 IPC channel 分发中心
+- `src-tauri/src/unm.rs`：UnblockNeteaseMusic Rust 集成
 
-- macOS 用户可以通过 Homebrew 来安装：`brew install --cask yesplaymusic`
+## 环境要求
 
-- Windows 用户可以通过 Scoop 来安装：`scoop install extras/yesplaymusic`
+- Windows 10/11
+- Node.js 16 或兼容旧 Vue CLI 4 工具链的 Node 版本
+- pnpm
+- Rust stable MSVC 工具链
+- Visual Studio C++ Build Tools
+- WebView2 Runtime
 
-## 同类项目（排名无先后）
+Windows 11 通常已自带 WebView2 Runtime。构建 NSIS 安装包需要完整 Rust/MSVC 编译环境。
 
-欢迎大家通过 PR 分享你的项目，让更多人看到！
+## 开发命令
 
-- [algerkong/AlgerMusicPlayer](https://github.com/algerkong/AlgerMusicPlayer)
-- [asxez/MusicBox](https://github.com/asxez/MusicBox)
-- [lianchengwu/wmplayer](https://github.com/lianchengwu/wmplayer)
+安装依赖：
 
-## ⚙️ 部署至 Vercel
-
-除了下载安装包使用，你还可以将本项目部署到 Vercel 或你的服务器上。下面是部署到 Vercel 的方法。
-
-本项目的 Demo (https://music.qier222.com) 就是部署在 Vercel 上的网站。
-
-[![Powered by Vercel](https://www.datocms-assets.com/31049/1618983297-powered-by-vercel.svg)](https://vercel.com/?utm_source=ohmusic&utm_campaign=oss)
-
-1. 部署网易云 API，详情参见 [Binaryify/NeteaseCloudMusicApi](https://neteasecloudmusicapi.vercel.app/#/?id=%e5%ae%89%e8%a3%85)
-   。你也可以将 API 部署到 Vercel。
-
-2. 点击本仓库右上角的 Fork，复制本仓库到你的 GitHub 账号。
-
-3. 点击仓库的 Add File，选择 Create new file，输入 `vercel.json`，将下面的内容复制粘贴到文件中，并将 `https://your-netease-api.example.com` 替换为你刚刚部署的网易云 API 地址：
-
-```json
-{
-  "rewrites": [
-    {
-      "source": "/api/:match*",
-      "destination": "https://your-netease-api.example.com/:match*"
-    }
-  ]
-}
+```bash
+pnpm install
 ```
 
-4. 打开 [Vercel.com](https://vercel.com)，使用 GitHub 登录。
+启动 Tauri 开发版：
 
-5. 点击 Import Git Repository 并选择你刚刚复制的仓库并点击 Import。
-
-6. 点击 PERSONAL ACCOUNT 旁边的 Select。
-
-7. 点击 Environment Variables，填写 Name 为 `VUE_APP_NETEASE_API_URL`，Value 为 `/api`，点击 Add。最后点击底部的 Deploy 就可以部署到
-   Vercel 了。
-
-## ⚙️ 部署到自己的服务器
-
-除了部署到 Vercel，你还可以部署到自己的服务器上
-
-1. 部署网易云 API，详情参见 [Binaryify/NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi)
-2. 克隆本仓库
-
-```sh
-git clone --recursive https://github.com/qier222/YesPlayMusic.git
+```bash
+pnpm tauri:dev
 ```
 
-3. 安装依赖
+构建 Windows 安装包：
 
-```sh
-yarn install
-
+```bash
+pnpm tauri:build
 ```
 
-4. （可选）使用 Nginx 反向代理 API，将 API 路径映射为 `/api`，如果 API 和网页不在同一个域名下的话（跨域），会有一些 bug。
+构建产物位置：
 
-5. 复制 `/.env.example` 文件为 `/.env`，修改里面 `VUE_APP_NETEASE_API_URL` 的值为网易云 API 地址。本地开发的话可以填写 API 地址为 `http://localhost:3000`，YesPlayMusic 地址为 `http://localhost:8080`。如果你使用了反向代理 API，可以填写 API 地址为 `/api`。
-
-```
-VUE_APP_NETEASE_API_URL=http://localhost:3000
+```text
+src-tauri/target/release/bundle/nsis/
 ```
 
-6. 编译打包
+仅启动 Web 前端：
 
-```sh
-yarn run build
+```bash
+pnpm serve
 ```
 
-7. 将 `/dist` 目录下的文件上传到你的 Web 服务器
+运行旧 Electron 开发版：
 
-## ⚙️ 宝塔面板 docker 应用商店 部署
-
-1. 安装宝塔面板，前往[宝塔面板官网](https://www.bt.cn/new/download.html) ，选择正式版的脚本下载安装。
-
-2. 安装后登录宝塔面板，在左侧导航栏中点击 Docker，首次进入会提示安装 Docker 服务，点击立即安装，按提示完成安装
-
-3. 安装完成后在应用商店中找到 YesPlayMusic，点击安装，配置域名、端口等基本信息即可完成安装。
-
-4. 安装后在浏览器输入上一步骤设置的域名即可访问。
-
-## ⚙️ Docker 部署
-
-1. 构建 Docker Image
-
-```sh
-docker build -t yesplaymusic .
+```bash
+pnpm electron:serve
 ```
 
-2. 启动 Docker Container
+Electron 相关命令仍可用于对照旧行为，但不是当前 Windows 重构版的主发布路径。
 
-```sh
-docker run -d --name YesPlayMusic -p 80:80 yesplaymusic
+## 配置说明
+
+常用环境变量位于 `.env.example`：
+
+```text
+VUE_APP_NETEASE_API_URL=/api
+VUE_APP_ELECTRON_API_URL=/api
+VUE_APP_ELECTRON_API_URL_DEV=http://127.0.0.1:10754
+VUE_APP_LASTFM_API_KEY=...
+VUE_APP_LASTFM_API_SHARED_SECRET=...
+DEV_SERVER_PORT=20201
 ```
 
-3. Docker Compose 启动
+Tauri 开发和构建命令会设置 `TAURI_BUILD=1`，并通过 `vue.config.js` 注入：
 
-```sh
-docker-compose up -d
+- `process.env.IS_ELECTRON = true`
+- `process.env.IS_TAURI = true`
+- `process.platform = "win32"`
+
+这样前端会复用旧 Electron 桌面代码路径，再由 `tauriBridge.js` 转发到 Tauri IPC。
+
+## 已知差异
+
+- 只保证 Windows 端可用；macOS/Linux 专属能力不迁移。
+- Last.fm 授权会走系统浏览器，旧 Electron 子窗口回调流程不可用。
+- WebView2 媒体流量代理需要重启应用后生效；API 请求代理会随请求参数即时生效。
+- 默认解灰源为 ytdl、bilibili、pyncm、kugou；ytdl 需要系统安装 `yt-dlp`。
+- Tauri 生产窗口依赖本地 `127.0.0.1:27232` 服务。端口绑定失败时应用会中止启动，避免加载到其他本地进程页面。
+
+## 发布前验证清单
+
+Windows 版发布前至少验证：
+
+- 安装包可安装、启动、卸载
+- 扫码登录和登录态刷新正常
+- 播放、暂停、切歌、进度拖动正常
+- 歌词页、评论面板、评论发送/回复/点赞正常
+- 音质切换后当前歌曲音源刷新正常
+- 解灰可用，bilibili/ytdl 等来源失败时能回退
+- 托盘菜单、关闭到托盘、全局快捷键正常
+- 代理设置、缓存清理、`/player` 本地接口正常
+- `cargo test` 通过
+
+## 目录结构
+
+```text
+src/                    Vue 2 前端源码
+src/api/                网易云 API 调用封装
+src/components/         通用 UI 组件
+src/electron/           旧 Electron 主进程/桌面能力实现
+src/store/              Vuex 状态和本地持久化
+src/utils/              播放器、请求、缓存、Tauri 桥接等工具
+src/views/              页面视图
+src-tauri/              Tauri 2 Windows 桌面端
+public/                 静态资源
+images/                 README 截图资源
 ```
 
-YesPlayMusic 地址为 `http://localhost`
+## 许可和声明
 
-## ⚙️ 部署至 Replit
+本项目基于 YesPlayMusic 重构，仅供个人学习研究使用，禁止用于商业及非法用途。
 
-1. 新建 Repl，选择 Bash 模板
+原项目和 API 生态：
 
-2. 在 Replit shell 中运行以下命令
+- YesPlayMusic: https://github.com/qier222/YesPlayMusic
+- NeteaseCloudMusicApi: https://github.com/Binaryify/NeteaseCloudMusicApi
+- UnblockNeteaseMusic: https://github.com/UnblockNeteaseMusic/server
 
-```sh
-bash <(curl -s -L https://raw.githubusercontent.com/qier222/YesPlayMusic/main/install-replit.sh)
-```
+本项目沿用 MIT License。
 
-3. 首次运行成功后，只需点击绿色按钮 `Run` 即可再次运行
-
-4. 由于 replit 个人版限制内存为 1G（教育版为 3G），构建过程中可能会失败，请再次运行上述命令或运行以下命令：
-
-```sh
-cd /home/runner/${REPL_SLUG}/music && yarn install && yarn run build
-```
-
-## 👷‍♂️ 打包客户端
-
-如果在 Release 页面没有找到适合你的设备的安装包的话，你可以根据下面的步骤来打包自己的客户端。
-
-1. 打包 Electron 需要用到 Node.js 和 Yarn。可前往 [Node.js 官网](https://nodejs.org/zh-cn/) 下载安装包。安装 Node.js
-   后可在终端里执行 `npm install -g yarn` 来安装 Yarn。
-
-2. 使用 `git clone --recursive https://github.com/qier222/YesPlayMusic.git` 克隆本仓库到本地。
-
-3. 使用 `yarn install` 安装项目依赖。
-
-4. 复制 `/.env.example` 文件为 `/.env` 。
-
-5. 选择下列表格的命令来打包适合的你的安装包，打包出来的文件在 `/dist_electron` 目录下。了解更多信息可访问 [electron-builder 文档](https://www.electron.build/cli)
-
-| 命令                                       | 说明                      |
-| ------------------------------------------ | ------------------------- |
-| `yarn electron:build --windows nsis:ia32`  | Windows 32 位             |
-| `yarn electron:build --windows nsis:arm64` | Windows ARM               |
-| `yarn electron:build --linux deb:armv7l`   | Debian armv7l（树莓派等） |
-| `yarn electron:build --macos dir:arm64`    | macOS ARM                 |
-
-## :computer: 配置开发环境
-
-本项目由 [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi) 提供 API。
-
-运行本项目
-
-```shell
-# 安装依赖
-yarn install
-
-# 创建本地环境变量
-cp .env.example .env
-
-# 运行（网页端）
-yarn serve
-
-# 运行（electron）
-yarn electron:serve
-```
-
-本地运行 NeteaseCloudMusicApi，或者将 API [部署至 Vercel](#%EF%B8%8F-部署至-vercel)
-
-```shell
-# 运行 API （默认 3000 端口）
-yarn netease_api:run
-```
-
-## ☑️ Todo
-
-查看 Todo 请访问本项目的 [Projects](https://github.com/qier222/YesPlayMusic/projects/1)
-
-欢迎提 Issue 和 Pull request。
-
-## 📜 开源许可
-
-本项目仅供个人学习研究使用，禁止用于商业及非法用途。
-
-基于 [MIT license](https://opensource.org/licenses/MIT) 许可进行开源。
-
-## 灵感来源
-
-API 源代码来自 [Binaryify/NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi)
-
-- [Apple Music](https://music.apple.com)
-- [YouTube Music](https://music.youtube.com)
-- [Spotify](https://www.spotify.com)
-- [网易云音乐](https://music.163.com)
-
-## 🖼️ 截图
+## 截图
 
 ![lyrics][lyrics-screenshot]
 ![library-dark][library-dark-screenshot]
@@ -279,9 +181,6 @@ API 源代码来自 [Binaryify/NeteaseCloudMusicApi](https://github.com/Binaryif
 ![search][search-screenshot]
 ![home][home-screenshot]
 ![explore][explore-screenshot]
-
-<!-- MARKDOWN LINKS & IMAGES -->
-<!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
 
 [album-screenshot]: images/album.png
 [artist-screenshot]: images/artist.png

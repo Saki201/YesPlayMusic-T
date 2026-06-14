@@ -2,7 +2,7 @@
   <transition name="slide-up">
     <div
       class="lyrics-page"
-      :class="{ 'no-lyric': noLyric }"
+      :class="{ 'no-lyric': noLyric && rightPanel !== 'comments' }"
       :data-theme="theme"
     >
       <div
@@ -201,6 +201,20 @@
               >
                 <svg-icon icon-class="shuffle" />
               </button-icon>
+              <button-icon title="音质选择" @click.native="openQualityMenu">
+                <span class="lyric-switch-icon quality-badge">{{
+                  qualityLabel
+                }}</span>
+              </button-icon>
+              <button-icon
+                :title="rightPanel === 'comments' ? '切换到歌词' : '切换到评论'"
+                :class="{ active: rightPanel === 'comments' }"
+                @click.native="toggleComments"
+              >
+                <span class="lyric-switch-icon">{{
+                  rightPanel === 'comments' ? '词' : '评'
+                }}</span>
+              </button-icon>
               <button-icon
                 v-show="
                   isShowLyricTypeSwitch &&
@@ -224,13 +238,28 @@
                 <span class="lyric-switch-icon">音</span>
               </button-icon>
             </div>
+            <ContextMenu ref="qualityMenu">
+              <div
+                v-for="q in qualityOptions"
+                :key="q.value"
+                class="item"
+                @click="setQuality(q.value)"
+              >
+                {{ q.label }}
+                <span
+                  v-if="String(currentQuality) === q.value"
+                  style="margin-left: auto"
+                  >✓</span
+                >
+              </div>
+            </ContextMenu>
           </div>
         </div>
       </div>
       <div class="right-side">
         <transition name="slide-fade">
           <div
-            v-show="!noLyric"
+            v-show="!noLyric && rightPanel === 'lyrics'"
             ref="lyricsContainer"
             class="lyrics-container"
             :style="lyricFontSize"
@@ -282,6 +311,97 @@
             </ContextMenu>
           </div>
         </transition>
+        <transition name="slide-fade">
+          <div v-show="rightPanel === 'comments'" class="comments-container">
+            <div class="comments-head">
+              评论<span v-if="commentTotal">
+                ({{ commentTotal | formatPlayCount }})</span
+              >
+              <div class="sort-tabs">
+                <a
+                  v-for="s in sortOptions"
+                  :key="s.value"
+                  class="sort-tab"
+                  :class="{ active: commentSortType === s.value }"
+                  @click="changeSort(s.value)"
+                  >{{ s.label }}</a
+                >
+              </div>
+            </div>
+            <div class="comments-list">
+              <CommentItem
+                v-for="c in comments"
+                :key="c.commentId"
+                :comment="c"
+                @like="likeAComment"
+                @reply="startReply"
+              >
+                <div
+                  v-if="c.replyCount"
+                  class="expand-replies"
+                  @click="toggleReplies(c)"
+                  >{{
+                    floorOf(c).open ? '收起回复' : `共 ${c.replyCount} 条回复 >`
+                  }}</div
+                >
+                <div v-if="floorOf(c).open" class="replies">
+                  <CommentItem
+                    v-for="r in floorOf(c).list"
+                    :key="r.commentId"
+                    :comment="r"
+                    is-reply
+                    @like="likeAComment"
+                    @reply="startReply"
+                  />
+                  <a
+                    v-if="floorOf(c).hasMore && !floorOf(c).loading"
+                    class="more-replies"
+                    @click="loadFloor(c)"
+                    >更多回复</a
+                  >
+                  <span v-if="floorOf(c).loading" class="more-replies"
+                    >加载中...</span
+                  >
+                </div>
+              </CommentItem>
+              <button
+                v-if="hasMoreComments && !commentsLoading"
+                class="load-more"
+                @click="loadComments"
+                >加载更多</button
+              >
+              <div v-if="commentsLoading" class="list-hint">加载中...</div>
+              <div v-if="!commentsLoading && !comments.length" class="list-hint"
+                >暂无评论</div
+              >
+            </div>
+            <div class="comment-input-bar">
+              <div v-if="replyTo" class="replying-tip">
+                回复 @{{ replyTo.user.nickname }}
+                <a @click="cancelReply">取消</a>
+              </div>
+              <div class="row">
+                <input
+                  v-model="commentInput"
+                  type="text"
+                  maxlength="140"
+                  :placeholder="
+                    replyTo
+                      ? `回复 @${replyTo.user.nickname}：`
+                      : '随乐而起，有感而发'
+                  "
+                  @keyup.enter="submitComment"
+                  @keydown.stop
+                />
+                <button
+                  :disabled="!commentInput.trim() || commentPosting"
+                  @click="submitComment"
+                  >发送</button
+                >
+              </div>
+            </div>
+          </div>
+        </transition>
       </div>
       <div class="close-button" @click="toggleLyrics">
         <button>
@@ -307,8 +427,15 @@ import VueSlider from 'vue-slider-component';
 import ContextMenu from '@/components/ContextMenu.vue';
 import { formatTrackTime } from '@/utils/common';
 import { getLyric } from '@/api/track';
+import {
+  getMusicCommentsNew,
+  getCommentFloor,
+  likeComment,
+  postComment,
+} from '@/api/comment';
 import { lyricParser, copyLyric } from '@/utils/lyrics';
 import ButtonIcon from '@/components/ButtonIcon.vue';
+import CommentItem from '@/components/CommentItem.vue';
 import * as Vibrant from 'node-vibrant/dist/vibrant.worker.min.js';
 import Color from 'color';
 import { isAccountLoggedIn } from '@/utils/auth';
@@ -321,6 +448,7 @@ export default {
     VueSlider,
     ButtonIcon,
     ContextMenu,
+    CommentItem,
   },
   data() {
     return {
@@ -335,6 +463,19 @@ export default {
       date: this.formatTime(new Date()),
       isFullscreen: !!document.fullscreenElement,
       rightClickLyric: null,
+      // 右侧面板：歌词 / 评论
+      rightPanel: 'lyrics',
+      comments: [],
+      commentTotal: 0,
+      commentPageNo: 1,
+      commentCursor: '',
+      commentSortType: 2, // 1 推荐 / 2 热度 / 3 时间
+      hasMoreComments: false,
+      commentsLoading: false,
+      floorState: {}, // commentId -> { open, list, hasMore, time, loading }
+      replyTo: null,
+      commentInput: '',
+      commentPosting: false,
     };
   },
   computed: {
@@ -445,11 +586,47 @@ export default {
     theme() {
       return this.settings.lyricsBackground === true ? 'dark' : 'auto';
     },
+    currentQuality() {
+      return this.settings.musicQuality ?? 320000;
+    },
+    qualityOptions() {
+      return [
+        { value: '128000', label: '标准 128K' },
+        { value: '192000', label: '较高 192K' },
+        { value: '320000', label: '极高 320K' },
+        { value: 'flac', label: '无损 FLAC' },
+        { value: '999000', label: 'Hi-Res' },
+      ];
+    },
+    qualityLabel() {
+      const map = {
+        128000: '128K',
+        192000: '192K',
+        320000: '320K',
+        flac: '无损',
+        999000: 'Hi-Res',
+      };
+      return map[String(this.currentQuality)] ?? '320K';
+    },
+    sortOptions() {
+      return [
+        { value: 1, label: '推荐' },
+        { value: 2, label: '最热' },
+        { value: 3, label: '最新' },
+      ];
+    },
   },
   watch: {
-    currentTrack() {
+    currentTrack(newVal, oldVal) {
       this.getLyric();
       this.getCoverColor();
+      // 切歌时重置评论（乐观更新会让 currentTrack 对象替换两次，按 id 去重）
+      if (newVal?.id !== oldVal?.id) {
+        this.resetComments();
+        if (this.rightPanel === 'comments') {
+          this.loadComments();
+        }
+      }
     },
     showLyrics(show) {
       if (show) {
@@ -541,6 +718,185 @@ export default {
       } else {
         this.player.playNextTrack();
       }
+    },
+    openQualityMenu(e) {
+      this.$refs.qualityMenu.openMenu(e);
+    },
+    setQuality(value) {
+      if (String(this.currentQuality) === value) return;
+      this.$store.commit('changeMusicQuality', value);
+      this.player.switchQuality();
+      const opt = this.qualityOptions.find(q => q.value === value);
+      this.$store.dispatch('showToast', `已切换至${opt?.label ?? value}`);
+    },
+    toggleComments() {
+      this.rightPanel = this.rightPanel === 'comments' ? 'lyrics' : 'comments';
+      if (
+        this.rightPanel === 'comments' &&
+        !this.comments.length &&
+        !this.commentsLoading
+      ) {
+        this.loadComments();
+      }
+    },
+    resetComments() {
+      this.comments = [];
+      this.commentTotal = 0;
+      this.commentPageNo = 1;
+      this.commentCursor = '';
+      this.hasMoreComments = false;
+      this.floorState = {};
+      this.replyTo = null;
+    },
+    changeSort(sortType) {
+      this.commentSortType = sortType;
+      this.resetComments();
+      this.loadComments();
+    },
+    loadComments() {
+      const id = this.currentTrack?.id;
+      if (!id || this.commentsLoading) return;
+      this.commentsLoading = true;
+      const pageNo = this.commentPageNo;
+      const params = {
+        id,
+        pageNo,
+        pageSize: 30,
+        sortType: this.commentSortType,
+      };
+      // sortType=3（时间排序）翻页需要 cursor
+      if (this.commentSortType === 3 && pageNo > 1) {
+        params.cursor = this.commentCursor;
+      }
+      getMusicCommentsNew(params)
+        .then(res => {
+          const data = res?.data;
+          // 请求期间已切歌则丢弃过期数据
+          if (!data || this.currentTrack?.id !== id) return;
+          this.comments =
+            pageNo === 1
+              ? data.comments ?? []
+              : this.comments.concat(data.comments ?? []);
+          this.commentTotal = data.totalCount ?? 0;
+          this.hasMoreComments = data.hasMore ?? false;
+          this.commentPageNo = pageNo + 1;
+          const last = this.comments[this.comments.length - 1];
+          this.commentCursor = last?.time ?? '';
+        })
+        .finally(() => {
+          this.commentsLoading = false;
+        });
+    },
+    likeAComment(comment) {
+      if (!isAccountLoggedIn()) {
+        this.$store.dispatch('showToast', locale.t('toast.needToLogin'));
+        return;
+      }
+      const t = comment.liked ? 0 : 1;
+      // 乐观更新，失败回滚
+      comment.liked = !comment.liked;
+      comment.likedCount = (comment.likedCount || 0) + (t === 1 ? 1 : -1);
+      likeComment(this.currentTrack.id, comment.commentId, t)
+        .then(res => {
+          if (res?.code !== 200) throw new Error(res?.msg);
+        })
+        .catch(() => {
+          comment.liked = !comment.liked;
+          comment.likedCount = (comment.likedCount || 0) + (t === 1 ? -1 : 1);
+          this.$store.dispatch('showToast', '操作失败');
+        });
+    },
+    startReply(comment) {
+      if (!isAccountLoggedIn()) {
+        this.$store.dispatch('showToast', locale.t('toast.needToLogin'));
+        return;
+      }
+      this.replyTo = comment;
+    },
+    cancelReply() {
+      this.replyTo = null;
+    },
+    submitComment() {
+      if (!isAccountLoggedIn()) {
+        this.$store.dispatch('showToast', locale.t('toast.needToLogin'));
+        return;
+      }
+      const content = this.commentInput.trim();
+      if (!content || this.commentPosting) return;
+      this.commentPosting = true;
+      const replyTo = this.replyTo;
+      const params = replyTo
+        ? {
+            id: this.currentTrack.id,
+            content,
+            t: 2,
+            commentId: replyTo.commentId,
+          }
+        : { id: this.currentTrack.id, content, t: 1 };
+      postComment(params)
+        .then(res => {
+          if (res?.code !== 200) {
+            this.$store.dispatch(
+              'showToast',
+              res?.msg ?? res?.message ?? '评论失败'
+            );
+            return;
+          }
+          this.$store.dispatch('showToast', replyTo ? '回复成功' : '评论成功');
+          this.commentInput = '';
+          this.replyTo = null;
+          // 刷新列表（新评论可能有审核延迟，未必立即可见）
+          this.changeSort(this.commentSortType);
+        })
+        .finally(() => {
+          this.commentPosting = false;
+        });
+    },
+    floorOf(comment) {
+      return (
+        this.floorState[comment.commentId] ?? {
+          open: false,
+          list: [],
+          hasMore: false,
+          loading: false,
+        }
+      );
+    },
+    toggleReplies(comment) {
+      const state = this.floorState[comment.commentId];
+      if (!state) {
+        this.$set(this.floorState, comment.commentId, {
+          open: true,
+          list: [],
+          hasMore: false,
+          time: undefined,
+          loading: false,
+        });
+        this.loadFloor(comment);
+      } else {
+        state.open = !state.open;
+      }
+    },
+    loadFloor(comment) {
+      const state = this.floorState[comment.commentId];
+      if (!state || state.loading) return;
+      state.loading = true;
+      getCommentFloor({
+        parentCommentId: comment.commentId,
+        id: this.currentTrack.id,
+        limit: 20,
+        time: state.time,
+      })
+        .then(res => {
+          const data = res?.data;
+          if (!data) return;
+          state.list = state.list.concat(data.comments ?? []);
+          state.hasMore = data.hasMore ?? false;
+          state.time = data.time ?? state.time;
+        })
+        .finally(() => {
+          state.loading = false;
+        });
     },
     getLyric() {
       if (!this.currentTrack.id) return;
@@ -901,6 +1257,15 @@ export default {
         line-height: 14px;
         opacity: 0.88;
       }
+      .quality-badge {
+        font-size: 11px;
+        line-height: 12px;
+        font-weight: 700;
+        border: 1.5px solid var(--color-text);
+        border-radius: 4px;
+        padding: 1px 4px;
+        white-space: nowrap;
+      }
     }
   }
 }
@@ -1011,6 +1376,156 @@ export default {
 
   .lyrics-container .line:last-child {
     margin-bottom: calc(50vh - 128px);
+  }
+
+  .comments-container {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding-left: 78px;
+    max-width: 460px;
+
+    .comments-head {
+      font-size: 28px;
+      font-weight: 700;
+      padding: 6vh 18px 8px 18px;
+
+      span {
+        font-size: 16px;
+        opacity: 0.58;
+      }
+
+      .sort-tabs {
+        margin-top: 10px;
+        display: flex;
+        font-size: 14px;
+
+        .sort-tab {
+          margin-right: 16px;
+          opacity: 0.58;
+          cursor: pointer;
+
+          &:hover {
+            opacity: 0.88;
+          }
+
+          &.active {
+            opacity: 1;
+            color: var(--color-primary);
+          }
+        }
+      }
+    }
+
+    .comments-list {
+      flex: 1;
+      overflow-y: auto;
+      padding-bottom: 16px;
+
+      .expand-replies {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--color-primary);
+        margin-top: 6px;
+        cursor: pointer;
+        width: fit-content;
+      }
+
+      .replies {
+        margin-top: 4px;
+        padding-left: 12px;
+        border-left: 2px solid var(--color-secondary-bg-for-transparent);
+      }
+
+      .more-replies {
+        display: inline-block;
+        font-size: 13px;
+        font-weight: 600;
+        opacity: 0.58;
+        margin: 8px 0 4px 0;
+        cursor: pointer;
+
+        &:hover {
+          opacity: 0.88;
+        }
+      }
+
+      .load-more {
+        margin: 16px 18px 0 18px;
+        background: var(--color-secondary-bg-for-transparent);
+        color: var(--color-text);
+        border: none;
+        border-radius: 8px;
+        padding: 8px 16px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+
+        &:hover {
+          opacity: 0.88;
+        }
+      }
+
+      .list-hint {
+        margin: 16px 18px 0 18px;
+        font-size: 14px;
+        opacity: 0.48;
+      }
+    }
+
+    .comment-input-bar {
+      padding: 12px 18px 4vh 18px;
+
+      .replying-tip {
+        font-size: 13px;
+        opacity: 0.68;
+        margin-bottom: 6px;
+
+        a {
+          color: var(--color-primary);
+          cursor: pointer;
+          margin-left: 8px;
+        }
+      }
+
+      .row {
+        display: flex;
+
+        input {
+          flex: 1;
+          border: none;
+          background: var(--color-secondary-bg-for-transparent);
+          border-radius: 8px;
+          padding: 9px 12px;
+          color: var(--color-text);
+          font-size: 14px;
+          font-weight: 500;
+          outline: none;
+
+          &::placeholder {
+            color: var(--color-text);
+            opacity: 0.38;
+          }
+        }
+
+        button {
+          margin-left: 8px;
+          border: none;
+          border-radius: 8px;
+          padding: 0 16px;
+          background: var(--color-primary-bg-for-transparent);
+          color: var(--color-primary);
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+
+          &:disabled {
+            opacity: 0.38;
+            cursor: default;
+          }
+        }
+      }
+    }
   }
 }
 

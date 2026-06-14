@@ -11,17 +11,24 @@ module.exports = {
     disableHostCheck: true,
     port: process.env.DEV_SERVER_PORT || 8080,
     proxy: {
-      '^/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-        pathRewrite: {
-          '^/api': '/',
-        },
-      },
+      // Tauri 开发模式：代理到 Rust 侧 axum 服务（路由本身就挂在 /api 下，不重写路径）
+      // 其他模式：代理到本地 Node 版 NeteaseCloudMusicApi
+      '^/api': process.env.TAURI_BUILD
+        ? {
+            target: 'http://127.0.0.1:27232',
+            changeOrigin: true,
+          }
+        : {
+            target: 'http://localhost:3000',
+            changeOrigin: true,
+            pathRewrite: {
+              '^/api': '/',
+            },
+          },
     },
   },
   pwa: {
-    name: 'YesPlayMusic',
+    name: 'YesPlayMusic-T',
     iconPaths: {
       favicon32: 'img/icons/favicon-32x32.png',
     },
@@ -38,11 +45,27 @@ module.exports = {
       entry: 'src/main.js',
       template: 'public/index.html',
       filename: 'index.html',
-      title: 'YesPlayMusic',
+      title: 'YesPlayMusic-T',
       chunks: ['main', 'chunk-vendors', 'chunk-common', 'index'],
     },
   },
   chainWebpack(config) {
+    // Tauri 构建：复用 Electron 渲染端的编译期常量，让前端走桌面端代码路径
+    // process.platform 固定为 win32（仅出 Windows 版），保证 utils/platform.js 判断正确
+    if (process.env.TAURI_BUILD) {
+      config.plugin('define').tap(args => {
+        args[0]['process.env'].IS_ELECTRON = true;
+        args[0]['process.env'].IS_TAURI = true;
+        args[0]['process.platform'] = JSON.stringify('win32');
+        return args;
+      });
+      // 裸 require('electron') 的渲染端代码（如 nativeAlert）在 web 打包下会
+      // 解析到真实 electron 包并在加载时崩溃，alias 到空实现走降级路径
+      config.resolve.alias.set(
+        'electron',
+        resolve('src/utils/electronStub.js')
+      );
+    }
     config.module.rules.delete('svg');
     config.module.rule('svg').exclude.add(resolve('src/assets/icons')).end();
     config.module
@@ -70,7 +93,7 @@ module.exports = {
       .end()
       .use('esbuild-loader')
       .loader('esbuild-loader')
-      .options({ target: 'es2015', format: "cjs" })
+      .options({ target: 'es2015', format: 'cjs' })
       .end();
 
     // LimitChunkCountPlugin 可以通过合并块来对块进行后期处理。用以解决 chunk 包太多的问题
@@ -88,15 +111,15 @@ module.exports = {
       nodeIntegration: true,
       externals: ['@unblockneteasemusic/rust-napi'],
       builderOptions: {
-        productName: 'YesPlayMusic',
-        copyright: 'Copyright © YesPlayMusic',
+        productName: 'YesPlayMusic-T',
+        copyright: 'Copyright © YesPlayMusic-T',
         // compression: "maximum", // 机器好的可以打开，配置压缩，开启后会让 .AppImage 格式的客户端启动缓慢
         asar: true,
         publish: [
           {
             provider: 'github',
-            owner: 'qier222',
-            repo: 'YesPlayMusic',
+            owner: 'Saki201',
+            repo: 'YesPlayMusic-T',
             vPrefixedTagName: true,
             releaseType: 'draft',
           },
@@ -126,7 +149,7 @@ module.exports = {
               arch: ['x64'],
             },
           ],
-          publisherName: 'YesPlayMusic',
+          publisherName: 'YesPlayMusic-T',
           icon: 'build/icons/icon.ico',
           publish: ['github'],
         },
@@ -187,7 +210,7 @@ module.exports = {
           .end()
           .use('esbuild-loader')
           .loader('esbuild-loader')
-          .options({ target: 'es2015', format: "cjs" })
+          .options({ target: 'es2015', format: 'cjs' })
           .end();
       },
       // 渲染线程的配置文件

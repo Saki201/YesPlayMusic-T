@@ -29,6 +29,13 @@ pnpm-debug.log*
 NeteaseCloudMusicApi-master
 NeteaseCloudMusicApi-master.zip
 
+# Tauri / Rust build output
+src-tauri/target/
+
+# Local package/tool caches
+.pnpm-store/
+.omc/
+
 # Local Netlify folder
 .netlify
 vercel.json

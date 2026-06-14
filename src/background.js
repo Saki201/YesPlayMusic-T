@@ -186,7 +186,7 @@ class Background {
         isWindows ||
         (isLinux && this.store.get('settings.linuxEnableCustomTitlebar'))
       ),
-      title: 'YesPlayMusic',
+      title: 'YesPlayMusic-T',
       show: false,
       webPreferences: {
         webSecurity: false,
@@ -351,7 +351,7 @@ class Background {
           width: 800,
           height: 600,
           titleBarStyle: 'default',
-          title: 'YesPlayMusic',
+          title: 'YesPlayMusic-T',
           webPreferences: {
             webSecurity: false,
             nodeIntegration: true,
@@ -477,7 +477,7 @@ class Background {
     });
 
     if (!isMac) {
-      app.on('second-instance', (e, cl, wd) => {
+      app.on('second-instance', () => {
         if (this.window) {
           this.window.show();
           if (this.window.isMinimized()) {

@@ -1,6 +1,7 @@
 <template>
-  <div class="win32-titlebar">
-    <div class="title">{{ title }}</div>
+  <!-- data-tauri-drag-region：Tauri 下的窗口拖拽区域（Electron 走 CSS -webkit-app-region，互不影响） -->
+  <div class="win32-titlebar" data-tauri-drag-region>
+    <div class="title" data-tauri-drag-region>{{ title }}</div>
     <div class="controls">
       <div
         class="button minimize codicon codicon-chrome-minimize"

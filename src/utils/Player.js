@@ -6,7 +6,11 @@ import { getPlaylistDetail, intelligencePlaylist } from '@/api/playlist';
 import { getLyric, getMP3, getTrackDetail, scrobble } from '@/api/track';
 import store from '@/store';
 import { isAccountLoggedIn } from '@/utils/auth';
-import { cacheTrackSource, getTrackSource } from '@/utils/db';
+import {
+  cacheTrackSource,
+  getTrackSource,
+  deleteTrackSource,
+} from '@/utils/db';
 import { isCreateMpris, isCreateTray } from '@/utils/platform';
 import { Howl, Howler } from 'howler';
 import shuffle from 'lodash/shuffle';
@@ -43,8 +47,8 @@ const excludeSaveKeys = [
 
 function setTitle(track) {
   document.title = track
-    ? `${track.name} · ${track.ar[0].name} - YesPlayMusic`
-    : 'YesPlayMusic';
+    ? `${track.name} · ${track.ar[0].name} - YesPlayMusic-T`
+    : 'YesPlayMusic-T';
   if (isCreateTray) {
     ipcRenderer?.send('updateTrayTooltip', document.title);
   }
@@ -490,16 +494,31 @@ export default class {
         return source ?? this._getAudioSourceFromUnblockMusic(track);
       });
   }
+  /**
+   * 乐观更新当前歌曲 ID：双击后列表高亮立即跟随，
+   * 不等待歌单详情/歌曲详情/音源等任何网络请求。
+   * 其余字段保留旧值，避免底栏歌名/封面闪空。
+   */
+  _setCurrentTrackIdOptimistically(id) {
+    if (id !== undefined && id !== this._currentTrack?.id) {
+      this._currentTrack = { ...this._currentTrack, id };
+    }
+  }
   _replaceCurrentTrack(
     id,
     autoplay = true,
     ifUnplayableThen = UNPLAYABLE_CONDITION.PLAY_NEXT_TRACK
   ) {
-    if (autoplay && this._currentTrack.name) {
-      this._scrobble(this.currentTrack, this._howler?.seek());
+    // 听歌打卡的对象必须是「上一首完整加载过的歌」：
+    // currentTrack 的 id 可能已被乐观更新改写，不能直接拿来当上一首
+    const outgoingTrack = this._loadedTrack ?? this._currentTrack;
+    if (autoplay && outgoingTrack?.name) {
+      this._scrobble(outgoingTrack, this._howler?.seek());
     }
+    this._setCurrentTrackIdOptimistically(id);
     return getTrackDetail(id).then(data => {
       const track = data.songs[0];
+      this._loadedTrack = track;
       this._currentTrack = track;
       this._updateMediaSessionMetaData(track);
       return this._replaceCurrentTrackAudio(
@@ -899,6 +918,8 @@ export default class {
     }
   }
   playAlbumByID(id, trackID = 'first') {
+    // 双击指定歌曲时立即高亮，专辑详情在后台加载
+    if (trackID !== 'first') this._setCurrentTrackIdOptimistically(trackID);
     getAlbum(id).then(data => {
       let trackIDs = data.songs.map(t => t.id);
       this.replacePlaylist(trackIDs, id, 'album', trackID);
@@ -908,12 +929,16 @@ export default class {
     console.debug(
       `[debug][Player.js] playPlaylistByID 👉 id:${id} trackID:${trackID} noCache:${noCache}`
     );
+    // 双击指定歌曲时立即高亮，歌单详情在后台加载
+    if (trackID !== 'first') this._setCurrentTrackIdOptimistically(trackID);
     getPlaylistDetail(id, noCache).then(data => {
       let trackIDs = data.playlist.trackIds.map(t => t.id);
       this.replacePlaylist(trackIDs, id, 'playlist', trackID);
     });
   }
   playArtistByID(id, trackID = 'first') {
+    // 双击指定歌曲时立即高亮，歌手热门歌曲在后台加载
+    if (trackID !== 'first') this._setCurrentTrackIdOptimistically(trackID);
     getArtist(id).then(data => {
       let trackIDs = data.hotSongs.map(t => t.id);
       this.replacePlaylist(trackIDs, id, 'artist', trackID);
@@ -989,6 +1014,28 @@ export default class {
   }
   switchReversed() {
     this.reversed = !this.reversed;
+  }
+  /**
+   * 切换音质后重载当前曲目音源：
+   * 先清除该曲音源缓存（避免命中旧音质），再重新获取音源，保持进度与播放状态
+   */
+  switchQuality() {
+    const progress = this.progress;
+    const autoplay = this.playing;
+    deleteTrackSource(this.currentTrack.id)
+      .catch(() => {})
+      .then(() => {
+        return this._replaceCurrentTrackAudio(
+          this.currentTrack,
+          autoplay,
+          false
+        );
+      })
+      .then(replaced => {
+        if (replaced) {
+          this._howler?.seek(progress);
+        }
+      });
   }
 
   clearPlayNextList() {

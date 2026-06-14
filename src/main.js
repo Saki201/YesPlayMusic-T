@@ -1,3 +1,5 @@
+// Tauri 桥接层必须最先执行（在任何模块级 window.require('electron') 之前）
+import '@/utils/tauriBridge';
 import Vue from 'vue';
 import VueGtag from 'vue-gtag';
 import App from './App.vue';

@@ -1,0 +1,55 @@
+[package]
+name = "yesplaymusic-t"
+version = "0.4.10"
+description = "YesPlayMusic 的 Windows Tauri 重构版"
+authors = ["qier222"]
+edition = "2021"
+
+[lib]
+name = "yesplaymusic_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+
+# 本地服务：静态资源 + 网易云 API + /player 状态接口
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+rust-embed = "8"
+mime_guess = "2"
+ncm-api-rs = { version = "0.1", features = ["server"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# UnblockNeteaseMusic 解灰（与原 @unblockneteasemusic/rust-napi@0.4 同源同版本）
+unm_engine = "0.4"
+unm_engine_bilibili = "0.4"
+unm_engine_kugou = "0.4"
+unm_engine_pyncm = "0.4"
+unm_engine_ytdl = "0.4"
+unm_types = "0.4"
+# 上游 bug 修复：unm_engine_ytdl 0.4.0 使用 winapi::um::winbase 但未声明 feature，
+# 利用 cargo feature 可加性在此显式启用
+winapi = { version = "0.3", features = ["winbase"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+base64 = "0.22"
+
+# Discord Rich Presence
+discord-rich-presence = "0.2"
+# 自动更新检查（GitHub Releases）+ 打开外部链接
+semver = "1"
+tauri-plugin-opener = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

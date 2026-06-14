@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "主窗口能力：本地与远程（127.0.0.1:27232 / 开发服务器）页面均可使用 IPC",
+  "local": true,
+  "remote": {
+    "urls": ["http://127.0.0.1:27232", "http://localhost:20201"]
+  },
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:default",
+    "core:webview:default"
+  ]
+}
