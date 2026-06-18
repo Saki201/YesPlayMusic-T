@@ -6,11 +6,15 @@
 //! Linux/macOS 专用 channel（seeked、metadata、sendLyrics 等 mpris 系）直接 no-op。
 
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 use crate::settings::Settings;
 use crate::{shortcuts, tray};
+
+/// 记录进入全屏前窗口是否处于最大化状态，退出全屏时恢复
+static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
 
 /// 处理关闭请求（标题栏关闭按钮 + Alt+F4 共用）。
 /// 返回 true 表示阻止默认关闭。
@@ -81,15 +85,22 @@ pub async fn ipc_send(
             let _ = window.emit("isMaximized", serde_json::json!([!maximized]));
         }
         "enterFullscreen" => {
+            // 记住进入全屏前是否最大化，退出全屏时恢复
+            let maximized = window.is_maximized().unwrap_or(false);
+            WAS_MAXIMIZED.store(maximized, Ordering::Relaxed);
             // 最大化状态下直接 set_fullscreen 会导致任务栏区域黑条。
             // 先取消最大化再进入全屏，确保窗口状态干净过渡。
-            if window.is_maximized().unwrap_or(false) {
+            if maximized {
                 let _ = window.unmaximize();
             }
             let _ = window.set_fullscreen(true);
         }
         "exitFullscreen" => {
             let _ = window.set_fullscreen(false);
+            // 退出全屏后恢复之前的最大化状态
+            if WAS_MAXIMIZED.swap(false, Ordering::Relaxed) {
+                let _ = window.maximize();
+            }
         }
         "close" => {
             handle_close(&app);
