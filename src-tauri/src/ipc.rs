@@ -82,6 +82,14 @@ pub async fn ipc_send(
         }
         "fullscreen" => {
             let fullscreen = window.is_fullscreen().unwrap_or(false);
+            if !fullscreen {
+                // 修复 Windows 最大化→全屏黑条问题：
+                // set_fullscreen 从最大化状态直接切换时，窗口未正确覆盖任务栏区域。
+                // 先取消最大化再进入全屏，确保窗口状态干净。
+                if window.is_maximized().unwrap_or(false) {
+                    let _ = window.unmaximize();
+                }
+            }
             let _ = window.set_fullscreen(!fullscreen);
             let _ = window.emit("fullscreenChanged", serde_json::json!([!fullscreen]));
         }
