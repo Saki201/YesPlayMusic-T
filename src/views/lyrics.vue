@@ -442,6 +442,11 @@ import { isAccountLoggedIn } from '@/utils/auth';
 import { hasListSource, getListSourcePath } from '@/utils/playList';
 import locale from '@/locale';
 
+const electron =
+  process.env.IS_ELECTRON === true ? window.require('electron') : null;
+const ipcRenderer =
+  process.env.IS_ELECTRON === true ? electron.ipcRenderer : null;
+
 export default {
   name: 'Lyrics',
   components: {
@@ -461,7 +466,9 @@ export default {
       minimize: true,
       background: '',
       date: this.formatTime(new Date()),
-      isFullscreen: !!document.fullscreenElement,
+      isFullscreen: process.env.IS_TAURI
+        ? false
+        : !!document.fullscreenElement,
       rightClickLyric: null,
       // 右侧面板：歌词 / 评论
       rightPanel: 'lyrics',
@@ -648,9 +655,17 @@ export default {
         this.fullscreen();
       }
     });
-    document.addEventListener('fullscreenchange', () => {
-      this.isFullscreen = !!document.fullscreenElement;
-    });
+    // Tauri：原生窗口全屏，监听 Rust 端 fullscreenChanged 事件
+    // 非 Tauri（Electron / 浏览器）：监听浏览器 fullscreenchange 事件
+    if (process.env.IS_TAURI) {
+      ipcRenderer.on('fullscreenChanged', (_, value) => {
+        this.isFullscreen = value;
+      });
+    } else {
+      document.addEventListener('fullscreenchange', () => {
+        this.isFullscreen = !!document.fullscreenElement;
+      });
+    }
   },
   beforeDestroy: function () {
     if (this.timer) {
@@ -683,7 +698,10 @@ export default {
       );
     },
     fullscreen() {
-      if (document.fullscreenElement) {
+      // Tauri：使用原生窗口全屏（set_fullscreen），避免 WebView2 最大化→全屏黑条问题
+      if (process.env.IS_TAURI) {
+        ipcRenderer.send('fullscreen');
+      } else if (document.fullscreenElement) {
         document.exitFullscreen();
       } else {
         document.documentElement.requestFullscreen();

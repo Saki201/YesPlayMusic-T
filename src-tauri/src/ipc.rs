@@ -80,6 +80,11 @@ pub async fn ipc_send(
             }
             let _ = window.emit("isMaximized", serde_json::json!([!maximized]));
         }
+        "fullscreen" => {
+            let fullscreen = window.is_fullscreen().unwrap_or(false);
+            let _ = window.set_fullscreen(!fullscreen);
+            let _ = window.emit("fullscreenChanged", serde_json::json!([!fullscreen]));
+        }
         "close" => {
             handle_close(&app);
         }
