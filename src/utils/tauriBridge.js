@@ -66,6 +66,46 @@ if (process.env.IS_TAURI) {
     return {};
   };
 
+  // ---- 启动期错误捕获：release 为 windows_subsystem 无控制台，
+  // 把首个未捕获错误渲染到 #app（白屏 → 可见报错）并透传 Rust 落盘 error.log ----
+  const showFatal = msg => {
+    try {
+      const el = document.getElementById('app');
+      if (el && !el.childElementCount) {
+        el.innerHTML =
+          '<pre style="margin:0;padding:24px;min-height:100vh;box-sizing:border-box;' +
+          'font:13px/1.6 Consolas,monospace;color:#ffd0d0;background:#1e1e1e;' +
+          'white-space:pre-wrap;word-break:break-word">应用启动失败：\n\n' +
+          String(msg).slice(0, 2000) +
+          '\n\n（详情见 %APPDATA%/com.qier222.yesplaymusic-t/error.log）</pre>';
+      }
+    } catch (_) {
+      /* #app 可能尚未就绪，静默忽略 */
+    }
+  };
+  const reportFatal = msg => {
+    showFatal(msg);
+    try {
+      tauri()?.core.invoke('log_error', { message: String(msg) });
+    } catch (_) {
+      /* Tauri 未就绪时静默忽略，至少保证 UI 报错可见 */
+    }
+  };
+  window.addEventListener('error', e => {
+    const detail = e.error
+      ? e.error.stack || e.error.message
+      : e.message || String(e);
+    reportFatal(detail);
+  });
+  window.addEventListener('unhandledrejection', e => {
+    const reason = e.reason;
+    const detail =
+      reason && (reason.stack || reason.message)
+        ? reason.stack || reason.message
+        : String(reason);
+    reportFatal(detail);
+  });
+
   // 外部链接交给系统浏览器打开（对照 Electron new-window → shell.openExternal）
   const originalOpen = window.open.bind(window);
   window.open = (url, ...rest) => {

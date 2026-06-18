@@ -206,6 +206,32 @@ pub async fn ipc_send(
     Ok(Value::Null)
 }
 
+/// 前端启动期未捕获错误落盘（对照 tauriBridge.js 的 error/unhandledrejection 监听）。
+/// release 为 windows_subsystem 无控制台，借此把排查线索留存到
+/// `%APPDATA%/com.qier222.yesplaymusic-t/error.log`。
+#[tauri::command]
+pub fn log_error(app: AppHandle, message: String) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let Some(dir) = app.path().app_config_dir().ok() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("error.log"))
+    {
+        let _ = writeln!(f, "[{stamp}] {message}");
+    }
+}
+
 /// 前端每秒推送播放状态，缓存给 /player 对外接口
 #[tauri::command]
 pub fn update_player_state(state: Value) {

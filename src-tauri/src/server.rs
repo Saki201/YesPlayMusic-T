@@ -37,24 +37,52 @@ async fn static_handler(uri: Uri) -> impl IntoResponse {
     let path = if path.is_empty() { "index.html" } else { path };
 
     match Dist::get(path) {
-        Some(file) => {
-            let mime = mime_guess::from_path(path).first_or_octet_stream();
-            (
-                [(header::CONTENT_TYPE, mime.as_ref().to_string())],
-                file.data,
-            )
-                .into_response()
-        }
-        // 前端使用 hash 路由，未命中的路径回退到 index.html
-        None => match Dist::get("index.html") {
+        Some(file) => (
+            [(header::CONTENT_TYPE, content_type(path))],
+            file.data,
+        )
+            .into_response(),
+        // SPA 路由（无扩展名，如直接访问 /library）回退到 index.html
+        None if is_spa_route(path) => match Dist::get("index.html") {
             Some(file) => (
-                [(header::CONTENT_TYPE, "text/html".to_string())],
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8".to_string())],
                 file.data,
             )
                 .into_response(),
             None => (StatusCode::NOT_FOUND, "前端资源未构建").into_response(),
         },
+        // 带扩展名的资源（/js/*.js、/css/*.css 等）未命中直接 404。
+        // 旧实现统一回退 index.html：浏览器把 HTML 当 JS 解析立即抛语法错误，
+        // 在 release（windows_subsystem 无控制台）下表现为白屏。
+        None => (StatusCode::NOT_FOUND, "资源不存在").into_response(),
     }
+}
+
+/// 按扩展名返回 Content-Type。.js/.css 显式指定，避免 mime_guess 版本差异
+/// （不同 feature 下 .js 可能返回 application/javascript 或 text/javascript）。
+fn content_type(path: &str) -> String {
+    match path.rsplit('.').next() {
+        Some("js") | Some("mjs") => "text/javascript; charset=utf-8".to_string(),
+        Some("css") => "text/css; charset=utf-8".to_string(),
+        Some("html") | Some("htm") => "text/html; charset=utf-8".to_string(),
+        Some("json") => "application/json; charset=utf-8".to_string(),
+        Some("svg") => "image/svg+xml".to_string(),
+        Some("woff") => "font/woff".to_string(),
+        Some("woff2") => "font/woff2".to_string(),
+        Some("png") => "image/png".to_string(),
+        Some("ico") => "image/x-icon".to_string(),
+        Some("webmanifest") => "application/manifest+json".to_string(),
+        _ => mime_guess::from_path(path)
+            .first_or_octet_stream()
+            .as_ref()
+            .to_string(),
+    }
+}
+
+/// 是否为 SPA 路由路径（无文件扩展名），用于决定是否回退 index.html。
+/// /api、/player 由上游 nest/route 处理，不会走到这里。
+fn is_spa_route(path: &str) -> bool {
+    !path.contains('.')
 }
 
 /// 登录接口响应兼容层：抹平 ncm-api-rs 与 Node 版 NeteaseCloudMusicApi 的结构差异
@@ -119,11 +147,25 @@ fn bind_listener_for_test(
 }
 
 pub fn start() -> Result<(), String> {
-    let listener = bind_std_listener(SERVER_ADDR)?;
-    let listener = tokio::net::TcpListener::from_std(listener)
-        .map_err(|e| format!("创建 tokio 监听器失败: {e}"))?;
+    // 纯 std 绑定：不依赖 Tokio reactor，可在 setup() 同步上下文里安全调用。
+    // 端口冲突在此被 ? 捕获，中止启动（与原行为一致）。
+    let std_listener = bind_std_listener(SERVER_ADDR)?;
 
     tauri::async_runtime::spawn(async move {
+        // from_std 需在 Tokio 运行时上下文内调用。debug 构建下 setup 主线程
+        // 可能恰好命中 reactor，但 release（单线程 runtime）主线程无 reactor，
+        // 在 setup 同步上下文调 from_std 会 panic：
+        //   "there is no reactor running, must be called from the context of a Tokio 1.x runtime"
+        // 表现为安装版双击无反应（进程在 setup 阶段 panic 静默退出）。
+        // 搬进 spawn 的 async 块即处于 reactor 上下文，问题消除。
+        let listener = match tokio::net::TcpListener::from_std(std_listener) {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("[server] 创建 tokio 监听器失败: {e}");
+                return;
+            }
+        };
+
         let ncm = ncm_api_rs::server::build_app(ncm_api_rs::create_client(None))
             .layer(middleware::from_fn(login_compat));
 

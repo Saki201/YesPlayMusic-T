@@ -28,6 +28,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ipc::ipc_send,
             ipc::update_player_state,
+            ipc::log_error,
             unm::unblock_music,
         ])
         .setup(|app| {
