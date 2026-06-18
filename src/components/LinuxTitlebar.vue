@@ -87,7 +87,8 @@ export default {
   .title {
     padding: 8px;
     font-size: 12px;
-    font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+    font-family: 'Segoe UI', 'Malgun Gothic', 'Yu Gothic UI',
+      'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
     justify-self: center;
     margin: 0 auto;
   }
