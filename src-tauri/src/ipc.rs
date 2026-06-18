@@ -80,18 +80,16 @@ pub async fn ipc_send(
             }
             let _ = window.emit("isMaximized", serde_json::json!([!maximized]));
         }
-        "fullscreen" => {
-            let fullscreen = window.is_fullscreen().unwrap_or(false);
-            if !fullscreen {
-                // 修复 Windows 最大化→全屏黑条问题：
-                // set_fullscreen 从最大化状态直接切换时，窗口未正确覆盖任务栏区域。
-                // 先取消最大化再进入全屏，确保窗口状态干净。
-                if window.is_maximized().unwrap_or(false) {
-                    let _ = window.unmaximize();
-                }
+        "enterFullscreen" => {
+            // 最大化状态下直接 set_fullscreen 会导致任务栏区域黑条。
+            // 先取消最大化再进入全屏，确保窗口状态干净过渡。
+            if window.is_maximized().unwrap_or(false) {
+                let _ = window.unmaximize();
             }
-            let _ = window.set_fullscreen(!fullscreen);
-            let _ = window.emit("fullscreenChanged", serde_json::json!([!fullscreen]));
+            let _ = window.set_fullscreen(true);
+        }
+        "exitFullscreen" => {
+            let _ = window.set_fullscreen(false);
         }
         "close" => {
             handle_close(&app);

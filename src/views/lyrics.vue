@@ -466,9 +466,7 @@ export default {
       minimize: true,
       background: '',
       date: this.formatTime(new Date()),
-      isFullscreen: process.env.IS_TAURI
-        ? false
-        : !!document.fullscreenElement,
+      isFullscreen: !!document.fullscreenElement,
       rightClickLyric: null,
       // 右侧面板：歌词 / 评论
       rightPanel: 'lyrics',
@@ -657,15 +655,9 @@ export default {
     });
     // Tauri：原生窗口全屏，监听 Rust 端 fullscreenChanged 事件
     // 非 Tauri（Electron / 浏览器）：监听浏览器 fullscreenchange 事件
-    if (process.env.IS_TAURI) {
-      ipcRenderer.on('fullscreenChanged', (_, value) => {
-        this.isFullscreen = value;
-      });
-    } else {
-      document.addEventListener('fullscreenchange', () => {
-        this.isFullscreen = !!document.fullscreenElement;
-      });
-    }
+    document.addEventListener('fullscreenchange', () => {
+      this.isFullscreen = !!document.fullscreenElement;
+    });
   },
   beforeDestroy: function () {
     if (this.timer) {
@@ -698,9 +690,15 @@ export default {
       );
     },
     fullscreen() {
-      // Tauri：使用原生窗口全屏（set_fullscreen），避免 WebView2 最大化→全屏黑条问题
+      // Tauri：先切换原生窗口全屏，再切换 Web 全屏，两者配合避免最大化→全屏黑条
       if (process.env.IS_TAURI) {
-        ipcRenderer.send('fullscreen');
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+          setTimeout(() => ipcRenderer.send('exitFullscreen'), 80);
+        } else {
+          ipcRenderer.send('enterFullscreen');
+          setTimeout(() => document.documentElement.requestFullscreen(), 120);
+        }
       } else if (document.fullscreenElement) {
         document.exitFullscreen();
       } else {
