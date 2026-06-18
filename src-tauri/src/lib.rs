@@ -21,7 +21,15 @@ pub fn run() {
             }
         }))
         // 窗口大小/位置持久化（对应 Electron 版手写的 store.set('window', bounds)）
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // 排除 FULLSCREEN 标志，避免退出全屏后下次启动还原为全屏状态
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::FULLSCREEN,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
